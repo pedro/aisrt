@@ -5,6 +5,7 @@ require "dotenv/load"
 require "openai"
 require "optparse"
 require "json"
+require "srt"
 
 options = {
   from: "en",
@@ -14,15 +15,19 @@ options = {
 OptionParser.new do |opts|
   opts.banner = "Usage: aisrt.rb [options]"
 
-  opts.on("-s", "--srt SRT", "SRT file") do |f|
-    options[:file] = f
+  opts.on("-s", "--srt SRT", "SRT file") do |o|
+    options[:file] = o
   end
 
-  opts.on("--from LANG", "LANG the subtitle is in. Defaults to en") do |h|
-    options[:from] = h
+  opts.on("-c", "--context CTX", "CTX describing what's being translated") do |o|
+    options[:ctx] = o
   end
-  opts.on("--to LANG", "LANG to translate to. Defaults to en") do |h|
-    options[:to] = h
+
+  opts.on("--from LANG", "LANG the subtitle is in. Defaults to en") do |o|
+    options[:from] = o
+  end
+  opts.on("--to LANG", "LANG to translate to. Defaults to en") do |o|
+    options[:to] = o
   end
 end.parse!
 
@@ -31,81 +36,74 @@ unless options[:file]
   exit 1
 end
 
-puts options.inspect
-exit 0
-
-values = []
-headerIndex = nil
-
-CSV.foreach(options[:file]).each_with_index do |row, i|
-  if i == 0
-    m = row.each_with_index.find { |h, i| h.strip == options[:header] }
-    unless m 
-      puts "Header not found.\nAvailable:\n\n#{row.join("\n")}"
-      exit 1
-    end
-    headerIndex = m.last
-    next
-  end
-
-  v = row[headerIndex]
-  values << (v.is_a?(String) ? v.gsub("\n", " ") : nil)
-end
-
-
 client = OpenAI::Client.new(
   access_token: ENV["OPENAI_API_KEY"],
   log_errors: true,
+  request_timeout: 120,
 )
 
-batches = [values.reject(&:nil?)[0, 5]]
+# Batch translate unique texts that need translation
+def batch_translate_texts(client, options, texts, batch_size: 100)
+  translations = {}
 
-system = %{
-  Você é um assistente profissional para codificar questões abertas em
-  questionários de pesquisa de mercado. Você vai receber uma série de
-  respostas dos entrevistados, e deve escolher uma lista de temas que melhor
-  os representam.
+  batches = texts.each_slice(batch_size)
+  puts "batches: #{batches.size}"
 
-  Esta pesquisa foi feita em uma feira de calçados chamada BFSHOW, solicitada
-  pelos organizadores do evento e respondida pelos expositores. A idéia é ouvir
-  deles o que acharam do evento e como podem melhorar.
+  batches.each do |batch|
+    prompt = <<~PROMPT
+      Translate the following subtitles from #{options[:from]} to #{options[:to]}. 
+      Each subtitle is provided as a JSON object with an "id" and "text".
+      Return a JSON array where each object contains the same "id" and the translated text under "translation".
+      Do not include any extra text.
 
-  Você vai receber uma resposta por linha, e deve retornar uma lista de
-  temas descritos brevemente, em JSON, identificado somente por uma string. Use o
-  tema "Outros" para items que não se encaixem em definições existentes, e
-  "Indefinido" se tiver dúvidas sobre como codificar uma certa resposta.
-}
+      Subtitles:
+      #{JSON.pretty_generate(batch.map.with_index { |t, i| { id: i, text: t } })}
+    PROMPT
 
-header = %{
-  Para quem avaliou a feira com nota entre 0 e 8 (até 10), perguntamos: O que a
-  organizadora poderia melhorar para você dar nota 10 na sua recomendação?
+    response = client.chat(
+      parameters: {
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: "You're a professional translator tasked with translating subtitles for movies and TV shows. Provide accurate translations while preserving context and tone." },
+          { role: "user", content: prompt }
+        ]
+      }
+    )
 
-  Seguem as respostas, uma por linha:
-}
-
-batches.each do |batch|
-  response = client.chat(
-    parameters: {
-      model: "gpt-4o-mini",
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: header + "\n\n" + batch.join("\n") }
-      ],
-      # temperature: 0
-    }
-  )
-
-  begin
-    puts "got: #{response.inspect}"
-    puts "-> " + response["choices"].map { |c| c["message"]["content"] }.join("\n") + "\n\n"
-  rescue JSON::ParserError => e
-    puts "Failed to parse response: #{e}"
-    encoded_batch = []
+    raw = response.dig("choices", 0, "message", "content").sub(/\A```(?:json)?\s*/, "").sub(/\s*```\z/, "")
+    result = JSON.parse(raw)
+    puts "got batch #{result.size}"
+    result.each_with_index do |item, idx|
+      original_text = batch[item["id"]]
+      translations[original_text] = item["translation"].strip
+    end
   end
-
-  puts "got: #{encoded_batch.inspect}"
-  exit 0
-  
-  sleep(1) # Respect rate limits.
+  translations
 end
+
+def id(line)
+  return line.text.join(" ")
+end
+
+srt_data = File.read(options[:file])
+srt = SRT::File.parse(srt_data)
+
+unique_texts = srt.lines.map{ |l| id(l) }.select { |t| t.match?(/[A-Za-z]/) }
+translation_map = batch_translate_texts(client, options, unique_texts)
+
+srt.lines.each_with_index do |l, i|
+  x = id(l)
+  if translated = translation_map[x]
+    if translated.size > 42
+      parts = translated.split(" ")
+      mid = parts.size / 2
+      translated = parts[0..mid].join(" ") + "\n" + parts[mid+1..-1].join(" ")
+    end
+    l.text = translated.split("\n")
+  end
+end
+
+# Write out the translated SRT
+output_file = "translated_#{File.basename(options[:file])}"
+File.write(output_file, srt.to_s)
+puts "Translated subtitles written to #{output_file}"

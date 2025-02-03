@@ -21,6 +21,7 @@ GEM
       event_stream_parser (>= 0.3.0, < 2.0.0)
       faraday (>= 1)
       faraday-multipart (>= 1)
+    srt (0.1.5)
     uri (1.0.2)
 
 PLATFORMS
@@ -31,6 +32,7 @@ DEPENDENCIES
   csv
   dotenv
   ruby-openai
+  srt
 
 BUNDLED WITH
    2.6.2
