@@ -19,13 +19,10 @@ OptionParser.new do |opts|
     options[:file] = o
   end
 
-  opts.on("-c", "--context CTX", "CTX describing what's being translated") do |o|
-    options[:ctx] = o
-  end
-
   opts.on("--from LANG", "LANG the subtitle is in. Defaults to en") do |o|
     options[:from] = o
   end
+
   opts.on("--to LANG", "LANG to translate to. Defaults to en") do |o|
     options[:to] = o
   end
