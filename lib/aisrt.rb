@@ -5,7 +5,7 @@ require "dotenv/load"
 require "openai"
 require "optparse"
 
-require "./lib/translator"
+require_relative "translator"
 
 options = {
   from: "en",
@@ -42,6 +42,11 @@ client = OpenAI::Client.new(
 t = Translator.new(client, File.read(options[:file]), options)
 srt = t.run
 
-output = "translated_#{File.basename(options[:file])}"
+source = File.basename(options[:file])
+output = source.sub(/\.[\w-]+\.srt$/, ".#{options[:to]}.srt")
+if output == source
+  output = "translated-#{source}"
+end
+
 File.write(output, srt.to_s)
 puts "Translated subtitles written to #{output}"
