@@ -124,6 +124,40 @@ describe Translator do
     SRT
     assert_equal want, res.to_s
   end
+
+  it "breaks continuous sentences" do
+    breaks = [
+      "♪",         # not translateable
+      "[FOO] BAR", # starts with a bracket
+    ]
+
+    breaks.each do |br|
+      cli = setup_cli(["ABC1", br])
+
+      srt = <<~SRT
+        1
+        00:00:00,000 --> 00:00:05,000
+        ABC
+
+        2
+        00:00:05,000 --> 00:00:10,000
+        #{br}
+      SRT
+
+      t = Translator.new(cli, srt, {})
+      res = t.run
+      want = <<~SRT
+        1
+        00:00:00,000 --> 00:00:05,000
+        ABC1
+
+        2
+        00:00:05,000 --> 00:00:10,000
+        #{br}
+      SRT
+      assert_equal want, res.to_s
+      end
+  end
 end
 
 def setup_cli(response)
@@ -144,7 +178,7 @@ def setup_cli(response)
     end
     last = args[:parameters][:messages].last[:content].split("\n").last
     js = JSON.parse(last)
-    yield(args[:parameters][:model], js)
+    yield(args[:parameters][:model], js) if block_given?
     true
   end
 
