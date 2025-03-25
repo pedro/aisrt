@@ -10,6 +10,7 @@ require_relative "translator"
 options = {
   from: "en",
   to: "en",
+  model: "gpt-4o-mini",
 }
 
 OptionParser.new do |opts|
@@ -19,12 +20,16 @@ OptionParser.new do |opts|
     options[:file] = o
   end
 
-  opts.on("--from LANG", "LANG the subtitle is in. Defaults to en") do |o|
+  opts.on("--from LANG", "LANG the subtitle is in. Defaults to #{options[:from]}") do |o|
     options[:from] = o
   end
 
-  opts.on("--to LANG", "LANG to translate to. Defaults to en") do |o|
+  opts.on("--to LANG", "LANG to translate to. Defaults to #{options[:to]}") do |o|
     options[:to] = o
+  end
+
+  opts.on("--model MODEL", "Model to use. Defaults to #{options[:model]}") do |o|
+    opts[:model] = o
   end
 end.parse!
 

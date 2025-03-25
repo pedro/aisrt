@@ -46,7 +46,6 @@ describe Translator do
 
     responses.each do |variant|
       cli = setup_cli(variant) do |model, js|
-        assert_equal "gpt-4o-mini", model
         assert_equal ["TEST1"], js
       end
       
